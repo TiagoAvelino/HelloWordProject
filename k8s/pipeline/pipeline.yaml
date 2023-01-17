@@ -1,7 +1,7 @@
 apiVersion: tekton.dev/v1beta1
 kind: Pipeline
 metadata:
-  name: cd-pipeline
+  name: ci-cd-pipeline
   namespace: development
 spec:
   params:
@@ -13,10 +13,6 @@ spec:
       name: dev-proj
       type: string
       description: name of the development project
-    - default: production
-      name: prod-proj
-      type: string
-      description: name of the production project
     - default: develop
       description: "git revision to checkout (branch, tag, sha, ref…)"
       name: git-source-revision
@@ -34,19 +30,114 @@ spec:
       type: string
       description: name of the deployment to be patched
   tasks:
+    - name: git-clone
+      params:
+        - name: url
+          value: $(params.git-source-url)
+        - name: revision
+          value: $(params.git-source-revision)
+        - name: sslVerify
+          value: "false"
+        - name: noProxy
+          value: "true"
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: app-source
+    - name: run-test-cases
+      params:
+        - name: GOALS
+          value:
+            - clean
+            - test
+      runAfter:
+        - git-clone
+      taskRef:
+        kind: ClusterTask
+        name: maven
+      workspaces:
+        - name: source
+          workspace: app-source
+        - name: maven-settings
+          workspace: maven-settings
+    - name: build-artifact
+      params:
+        - name: GOALS
+          value:
+            - "-DskipTests"
+            - package
+            - "-Dquarkus.native.container-build=true"
+      runAfter:
+        - run-test-cases
+      taskRef:
+        kind: ClusterTask
+        name: maven
+      workspaces:
+        - name: source
+          workspace: app-source
+        - name: maven-settings
+          workspace: maven-settings
+    - name: build-push-image
+      params:
+        - name: IMAGE
+          value: $(params.remote-image)
+        - name: TLSVERIFY
+          value: "false"
+      runAfter:
+        - build-artifact
+      taskRef:
+        kind: ClusterTask
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: app-source
+    - name: apply-manifests
+      taskRef:
+        name: apply-manifests
+      runAfter:
+        - build-push-image
+      workspaces:
+        - name: source
+          workspace: app-source
+    - name: update-deployment-dev
+      taskRef:
+        name: update-deployment
+      params:
+        - name: deployment
+          value: $(params.deployment-name)
+        - name: IMAGE
+          value: $(params.remote-image)
+      runAfter:
+        - apply-manifests
+    - name: get-current-time
+      taskRef:
+        name: print-date
+      runAfter:
+        - apply-manifests
+    - name: tag-image
+      params:
+        - name: SCRIPT
+          value: >-
+            oc tag $(params.dev-proj)/$(params.image-name):latest
+            $(params.dev-proj)/$(params.image-name):$(tasks.get-current-time.results.current-date-unix)
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+      runAfter:
+        - get-current-time
     - name: update-kustomize-repo
       params:
         - name: gitRepositoryUrl
           value: $(params.git-source-url)
-        - name: gitRepositoryRevision
-          value: production
-        - name: gitPath
-          value: k8s
         - name: imageTag
           value: >-
             $(params.remote-image):$(tasks.get-current-time.results.current-date-unix)
         - name: verbose
-          value: 'true'
+          value: "true"
+      runAfter:
+        - tag-image
       taskRef:
         kind: Task
         name: update-kustomize-repo
@@ -54,17 +145,6 @@ spec:
         - name: repository
           workspace: git-prod
   workspaces:
-    - name: git-prod
+    - name: app-source
     - name: maven-settings
-
-
-        - name: update-prod-deployment
-      params:
-        - name: SCRIPT
-          value: >-
-            oc patch deployment $(params.deployment-name) --patch='{"spec":{"template":{"spec":{ "containers":[{"name": "$(params.deployment-name)", "image":"$(params.remote-image):$(tasks.get-current-time.results.current-date-unix)" }] }}}}' -n $(params.prod-proj)
-      runAfter:
-        - tag-image
-      taskRef:
-        kind: ClusterTask
-        name: openshift-client
+    - name: git-prod
