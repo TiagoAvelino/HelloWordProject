@@ -101,6 +101,11 @@ spec:
       workspaces:
         - name: source
           workspace: app-source
+    - name: get-current-time
+      taskRef:
+        name: print-date
+      runAfter:
+        - apply-manifests
     - name: update-deployment-dev
       taskRef:
         name: update-deployment
@@ -108,14 +113,9 @@ spec:
         - name: deployment
           value: $(params.deployment-name)
         - name: IMAGE
-          value: $(params.remote-image)
+          value: $(params.remote-image):$(tasks.get-current-time.results.current-date-unix)
       runAfter:
-        - apply-manifests
-    - name: get-current-time
-      taskRef:
-        name: print-date
-      runAfter:
-        - apply-manifests
+        - get-current-time
     - name: tag-image
       params:
         - name: SCRIPT
@@ -126,7 +126,7 @@ spec:
         kind: ClusterTask
         name: openshift-client
       runAfter:
-        - get-current-time
+        - update-deployment-dev
     - name: update-kustomize-repo
       params:
         - name: gitRepositoryUrl
