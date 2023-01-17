@@ -9,7 +9,7 @@ spec:
     - description: URL of the Git repository to update
       name: gitRepositoryUrl
       type: string
-    - default: production
+    - default: argocd
       description: Branch or Tag to push the update to
       name: gitRepositoryRevision
       type: string
@@ -20,12 +20,12 @@ spec:
     - description: The image tag to be written into the YAML
       name: imageTag
       type: string
-    - default: 'true'
+    - default: "true"
       description: Log the commands used during execution
       name: verbose
       type: string
   steps:
-    - image: 'alpine/git:v2.26.2'
+    - image: "alpine/git:v2.26.2"
       name: git-checkout
       resources: {}
       script: |
@@ -49,7 +49,7 @@ spec:
     - env:
         - name: IMAGE_TAG
           value: $(params.imageTag)
-      image: 'quay.io/dsanchor/ubi8-git:0.0.2'
+      image: "quay.io/dsanchor/ubi8-git:0.0.2"
       name: update-yaml
       resources: {}
       script: |
@@ -62,7 +62,7 @@ spec:
 
         sed -i 's|image:.*|image:\ $(params.imageTag)|' $(params.gitPath)
       workingDir: $(workspaces.repository.path)
-    - image: 'alpine/git:v2.26.2'
+    - image: "alpine/git:v2.26.2"
       name: commit-push-changes
       resources: {}
       script: >
@@ -81,5 +81,3 @@ spec:
       workingDir: $(workspaces.repository.path)
   workspaces:
     - name: repository
-
-    
